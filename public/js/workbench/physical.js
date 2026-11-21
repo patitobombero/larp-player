@@ -16,7 +16,7 @@ const WPhysical=(()=>{
   rhodes:{transient:[1640,.013,.019]},
   bass:{body:[[67,11,.8],[171,23,-.37],[395,48,.17]],returnGain:.22,transient:[1530,.017,.020]},
   flute:{breath:[2420,.051,.032],vibrato:[5.1,11,.24]},
-  cello:{vibrato:[4.7,15,.17],body:[[113,12,.51],[196,17,-.66],[285,24,.35],[451,36,.25],[760,65,-.13]],returnGain:.34,breath:[1120,.016,.010],vibrato:[5.6,16,.19]}
+  cello:{body:[[113,12,.51],[196,17,-.66],[285,24,.35],[451,36,.25],[760,65,-.13]],returnGain:.34,breath:[1120,.016,.010],vibrato:[5.6,16,.19]}
  };
  function partials(kind,pitch,velocity,timbre,rate,fine=0,settings=null){
   const cfg=settings||WInstruments.defaults(kind),v=velocity/127,color=timbre/100,p=[];
@@ -37,7 +37,7 @@ const WPhysical=(()=>{
    put("sine",f*.5,cfg.sub*.0048);
   }
   if(kind==="bass808"){
-   [.87,.092,.038].forEach((amp,i)=>put("sine",f*(i+1),amp,i?.083:0,i?.21:0,1.24+.12*v));
+   [.87,.092,.038].forEach((amp,i)=>put("sine",f*(i+1),amp*(i?.64+color*.46+v*.12:1),i?.083:0,i?.21:0,1.24+.12*v));
   }
   if(kind==="piano"){
    const b=(.00016+.00005*2**((pitch-60)/36))*(cfg.rigid/100)*[1,.84,1.22][cfg.model];

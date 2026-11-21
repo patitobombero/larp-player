@@ -9,7 +9,7 @@ El código se publica bajo licencia MIT. [Licencia](LICENSE) · [Créditos y rec
 | Sección | Implementación original | Implementación actual |
 | --- | --- | --- |
 | Biblioteca y reproductor | Los audios se abrían con URL temporales. Las playlists se guardaban en `localStorage` y apuntaban a posiciones de una biblioteca en memoria. | Como visitante puedes reproducir audio temporal. Con una cuenta, los audios y playlists privadas se guardan en el servidor y las pistas se referencian por un identificador estable. |
-| Sintetizador | Web Audio generaba el sonido, y la batería y el piano roll reproducían patrones en memoria. La descarga WAV llamaba a una API de Claude. | El Estudio tiene hasta ocho pistas de instrumentos, percusión y muestras, editor de notas, mezclador, grabación en vivo y exportación WAV. Guarda el arreglo con sus muestras y ajustes de audio. |
+| Sintetizador | Web Audio generaba el sonido, y la batería y el piano roll reproducían patrones en memoria. La descarga WAV llamaba a una API de Claude. | El Estudio tiene hasta veinte pistas, editor de notas, Larp FX, mezclador, grabación en vivo y exportación WAV de 48 o 96 kHz y 24 bits. Guarda el arreglo con sus muestras y ajustes de audio. |
 | EQ y DAC | Ocho bandas, compresor, analizador, frecuencia de salida, afinación y tonos de prueba en el navegador. El soporte de DAC variaba según el dispositivo. | Cada cuenta puede guardar perfiles de audio con ocho filtros paramétricos, compresor, limitador, balance, afinación, medición y comparación A/B. La salida y frecuencia físicas dependen del navegador y del DAC. |
 | Perfil | Identidad, perfil, chat y playlists compartidas dependían de `claude.use("user")`, `claude.use("db")` y `claude.use("assets")`. | Usuario y contraseña propios, sesión persistente, nombre visible, foto, biografía, gustos, tema y cambio de contraseña. |
 | Amigos y chat | Se agregaban usuarios desde sugerencias, las conversaciones dependían del servicio original y compartir la URL general servía como invitación informal. | Cada cuenta puede generar enlaces de un solo uso válidos por siete días. El chat privado conserva mensajes, audio, stickers incluidos y stickers de imagen (PNG, JPEG, GIF o WebP). |
@@ -105,6 +105,8 @@ El parche mantiene el Worker `larp-player`, las vinculaciones `LARP` y `MEDIA` y
 ## Diseño y mediciones de audio
 
 Consulta las comparaciones por instrumento y efecto, las mediciones de EQ y la prueba frente a Rubber Band R3 en la [auditoría de audio](docs/audio-verification.md).
+
+El flujo de exportación, el diseño de Larp FX y las cadenas de inserts por instrumento están en la [guía de sonido del Estudio](docs/studio-hires.md).
 
 ### Instrumentos por grabación y modelado
 

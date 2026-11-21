@@ -18,7 +18,7 @@ const sources=()=>session.tracks.map(track=>({
 const noiseByContext=new WeakMap();
 function noiseFor(context) {
   if (!noiseByContext.has(context)) {
-    const buffer=context.createBuffer(1,context.sampleRate,context.sampleRate);
+    const buffer=context.createBuffer(1,48000,48000);
     const samples=buffer.getChannelData(0);
     let seed=29349;
     for (let i=0;i<samples.length;i++) {

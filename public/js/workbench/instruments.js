@@ -7,6 +7,14 @@ const WInstruments=(()=>{
  const string={pluck:range("Posición de ataque",8,42,21," %"),hand:range("Traste preferido",0,15,2),noise:range("Ruido de ataque",0,100,20," %"),damp:range("Amortiguación",0,100,29," %"),
   articulation:choice("Articulación",["Púa","Dedos","Palm mute","Armónico natural"]),stroke:choice("Rasgueo",["Individual","Hacia abajo","Hacia arriba","Alterno"]),spreadMs:range("Apertura del rasgueo",0,145,52," ms"),stereo:range("Apertura estéreo",0,100,24," %")};
  const defs={
+  fx:{title:"Larp FX",tone:"fx",models:choice("Forma del efecto",["Subida","Barrido descendente","Impacto","Textura estéreo"]),
+   panels:[
+    ["Generador",{duration:range("Duración",.15,5,1.4," s",.05),sweep:range("Recorrido",0,48,24," st"),density:range("Ruido",0,100,60," %"),
+      cutoff:range("Brillo",220,18000,7200," Hz",10),stereo:range("Anchura",0,100,70," %")}],
+    ["Interpretación",{release:range("Cola",.05,2,.34," s",.01),...expression}]
+   ],
+   presets:[["Subida de aire",{duration:2.4,sweep:33,density:85,stereo:88}],["Barrido analógico",{model:1,duration:1.5,sweep:30,density:28,cutoff:4300}],["Impacto de subgrave",{model:2,duration:.9,sweep:19,density:36,cutoff:2500,stereo:44}],["Niebla estéreo",{model:3,duration:4,density:91,stereo:100,release:1.4,cutoff:5400}]]
+  },
   electric:{title:"Larp Electric Guitar",tone:"electric",models:choice("Marca y modelo",["Fender Player II Stratocaster · SSS"]),
    panels:[
     ["Captación",{pickup:choice("Selector de pastillas",["Puente","Puente + medio","Medio","Medio + mástil","Mástil"],3),coil:choice("Bobinado",["Single coil SSS","Doble single coil en paralelo","Humbucker en serie"]),tone:range("Tono pasivo",0,100,91," %"),cable:range("Capacitancia del cable",220,900,470," pF")}],

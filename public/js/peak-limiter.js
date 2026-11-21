@@ -10,6 +10,28 @@ const [first,half,last]=[.25,.5,.75].map(fraction=>{
  const sum=coefficients.reduce((a,b)=>a+b,0);
  return coefficients.map(value=>value/sum);
 });
+const reconstructionBound=Math.max(...[first,half,last].map(phase=>phase.reduce((sum,k)=>sum+Math.abs(k),0)));
+
+export function estimateTruePeak(channels,length,peak,floor){
+ if(peak*reconstructionBound<=floor)return peak;
+ const block=256,center=taps/2-1;
+ for(const samples of channels)for(let start=0;start<length;start+=block){
+  const end=Math.min(length,start+block);
+  let local=0;
+  for(let i=Math.max(0,start-center);i<Math.min(length,end+taps-center);i++)local=Math.max(local,Math.abs(samples[i]));
+  if(local*reconstructionBound<=Math.max(floor,peak))continue;
+  for(let i=start;i<end;i++){
+   let p1=0,p2=0,p3=0;
+   const left=i-center,lo=Math.max(0,-left),hi=Math.min(taps,length-left);
+   for(let k=lo;k<hi;k++){
+    const x=samples[left+k];
+    p1+=x*first[k];p2+=x*half[k];p3+=x*last[k];
+   }
+   peak=Math.max(peak,Math.abs(p1),Math.abs(p2),Math.abs(p3));
+  }
+ }
+ return peak;
+}
 
 export class PeakLimiter {
  constructor(rate){

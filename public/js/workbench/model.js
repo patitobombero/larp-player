@@ -15,6 +15,7 @@ const WModel=(()=>{
   flute:["Flauta",.071,.27,5400,.11],
   drums:["Batería",.002,.16,8100,.21],
   cello:["Cello",.094,.35,3900,.16],
+  fx:["FX · Efectos tocables",.015,.34,18000,.24],
   audio:["Audio",.004,.11,12000,.1],
   bus:["Bus"]
  };
@@ -29,10 +30,15 @@ const WModel=(()=>{
     cab:["Caja",0,3,1],mic:["Micrófono",0,2,0]}},
   drive:{title:"Larp Overdrive / Distortion",allowed:["guitar","electric","bass"],choices:{bands:["Pedal","Tres bandas"]},controls:{bands:["Procesamiento",0,1,0],drive:["Drive",0,100,36],tone:["Tono",0,100,58],color:["Color OD → DS",0,100,0],mix:["Mezcla",0,100,85],level:["Nivel",0,120,88]}},
   fuzz:{title:"Larp Fuzzy",allowed:["guitar","electric","bass"],choices:{flavor:["Grueso","Sostenido","Transistor","Vintage","Compuerta"],oversample:["1×","2×","4×"]},controls:{fuzz:["Fuzz",0,100,48],bias:["Polarización",-100,100,21],tone:["Tono",0,100,44],flavor:["Carácter",0,4,0],oversample:["Sobremuestreo",0,2,1],mix:["Mezcla",0,100,70],level:["Nivel",0,120,80]}},
-  space:{title:"Larp Reverb · Chorus · Dimension",allowed:["guitar","electric","bass"],controls:{reverb:["Reverb",0,100,25],chorus:["Chorus",0,100,23],dimension:["Dimensión",0,100,18],rate:["Velocidad",.15,7,.8,.01],room:["Sala",.25,3,1.3,.01],delay:["Eco",25,900,270],feedback:["Realimentación",0,78,25],density:["Densidad",0,100,32],warp:["Warp",0,100,15],wet:["Mezcla de eco",0,100,12],lowcut:["Corte grave",20,600,100],highcut:["Corte agudo",1500,18000,8400]}},
+  space:{title:"Larp Reverb · Chorus · Dimension",controls:{reverb:["Reverb",0,100,25],chorus:["Chorus",0,100,23],dimension:["Dimensión",0,100,18],rate:["Velocidad",.15,7,.8,.01],room:["Sala",.25,3,1.3,.01],delay:["Eco",25,900,270],feedback:["Realimentación",0,78,25],density:["Densidad",0,100,32],warp:["Warp",0,100,15],wet:["Mezcla de eco",0,100,12],lowcut:["Corte grave",20,600,100],highcut:["Corte agudo",1500,18000,8400]}},
   sustain:{title:"Larp Sustain Lead",allowed:["guitar","electric"],choices:{latch:["Mientras tocas","Retener al soltar"]},controls:{amount:["Sostenido",32,100,88],attack:["Entrada (ms)",3,180,20],release:["Salida (ms)",40,2100,410],latch:["Modo",0,1,0],level:["Nivel",30,115,85]}},
   padvault:{title:"Larp Pad Vault",allowed:["drums"],pad:true,controls:{volume:["Volumen",0,140,100],filter:["Filtro (Hz)",350,18000,10400],room:["Reverb",0,100,19],...drumControls([["volume","Ganancia",0,150,100],["pan","Balance",-100,100,0],["attack","Ataque añadido (ms)",0,85,0],["tune","Afinación (¢)",-1200,1200,0]])}},
-  drumcircuit:{title:"Larp Drum Circuit",allowed:["drums"],pad:true,choices:{sync:["Milisegundos","Al tempo"],delaySide:["Stereo","Ping-pong","Izquierdo","Derecho"]},controls:{room:["Sala",0,100,32],sync:["Sync",0,1,1],delaySide:["Canales de eco",0,3,1],delay:["Tiempo (ms)",40,960,260],division:["División (pulsos)",.125,2,.5,.125],feedback:["Feedback",0,75,24],mix:["Eco",0,100,20],dist:["Distorsión",0,100,19],gain:["Salida",5,145,100],...drumControls([["volume","Ganancia",0,150,100],["pan","Balance",-100,100,0],["tune","Afinación (¢)",-1200,1200,0]])}}
+  drumcircuit:{title:"Larp Drum Circuit",allowed:["drums"],pad:true,choices:{sync:["Milisegundos","Al tempo"],delaySide:["Stereo","Ping-pong","Izquierdo","Derecho"]},controls:{room:["Sala",0,100,32],sync:["Sync",0,1,1],delaySide:["Canales de eco",0,3,1],delay:["Tiempo (ms)",40,960,260],division:["División (pulsos)",.125,2,.5,.125],feedback:["Feedback",0,75,24],mix:["Eco",0,100,20],dist:["Distorsión",0,100,19],gain:["Salida",5,145,100],...drumControls([["volume","Ganancia",0,150,100],["pan","Balance",-100,100,0],["tune","Afinación (¢)",-1200,1200,0]])}},
+  channelEQ:{title:"Larp Channel EQ",choices:{cut:["Sin corte","20 Hz","45 Hz","85 Hz","140 Hz","240 Hz"]},
+   controls:{cut:["Paso alto",0,5,0],low:["Graves · 160 Hz",-15,15,0,.5," dB"],midHz:["Frecuencia media",150,8500,950,1," Hz"],mid:["Medios",-15,15,0,.5," dB"],width:["Q de medios",.3,8,1,.1],high:["Agudos · 5 kHz",-15,15,0,.5," dB"]}},
+  dynamics:{title:"Larp Dynamics",controls:{threshold:["Umbral",-48,0,-20,1," dB"],ratio:["Ratio",1,12,2.5,.1,":1"],knee:["Rodilla",0,30,10,1," dB"],attack:["Ataque",1,100,19,1," ms"],release:["Liberación",20,1000,170,1," ms"],makeup:["Salida",-12,12,0,.5," dB"]}},
+  tape:{title:"Larp Tape Echo",choices:{sync:["Libre","Al tempo"],division:["1/16","1/8","1/8 con puntillo","1/4","1/2"]},
+   controls:{sync:["Reloj",0,1,1],division:["División",0,4,2],time:["Tiempo",45,1050,333,1," ms"],feedback:["Feedback",0,74,31,1," %"],color:["Color",0,100,60,1," %"],ping:["Cruce estéreo",0,100,52,1," %"],wet:["Eco",0,100,26,1," %"]}}
  };
  const noteSpec={
   velocity:["Velocidad",1,127,95],pan:["Pan de nota",-100,100,0],release:["Liberación",.01,2,.21],

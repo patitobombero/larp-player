@@ -1,5 +1,5 @@
-export function encodeWav(buffer,name="larp-mezcla-" + Date.now() + ".wav",bits=16) {
-  if (buffer.length > 15_000_000) throw new Error("La grabación es demasiado larga para exportarla.");
+export function encodeWav(buffer,name="larp-mezcla-" + Date.now() + ".wav",bits=16,{dither=false}={}) {
+  if (buffer.length > Math.max(15_000_000,buffer.sampleRate*315)) throw new Error("La grabación es demasiado larga para exportarla.");
   const channels = Math.min(2,buffer.numberOfChannels);
   if (![16,24].includes(bits)) throw new Error("Resolución WAV no compatible.");
   const width=bits/8;
@@ -12,10 +12,13 @@ export function encodeWav(buffer,name="larp-mezcla-" + Date.now() + ".wav",bits=
   view.setUint16(32,channels*width,true); view.setUint16(34,bits,true); label(36,"data"); view.setUint32(40,bytes.byteLength-44,true);
   const tracks = Array.from({length:channels},(_,i) => buffer.getChannelData(i));
   const scale=2**(bits-1);
+  let seed=301287;
+  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   let cursor = 44;
   for (let index=0;index<buffer.length;index++) for (const track of tracks) {
     const value = Math.max(-1,Math.min(1,track[index]));
-    const pcm=Math.round(value*(value<0?scale:scale-1));
+    const raw=value*(value<0?scale:scale-1)+(dither?random()-random():0);
+    const pcm=Math.max(-scale,Math.min(scale-1,Math.round(raw)));
     view.setInt16(cursor,pcm,true);
     if (bits===24) view.setInt8(cursor+2,pcm>>16);
     cursor+=width;

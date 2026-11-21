@@ -75,3 +75,24 @@
 .w-plugin[data-fx=amp] .w-pedal { --inst:#e6be84; --metal:#29242d; background:linear-gradient(#201b24 0 29%,#594932 29%,#28222c 100%); box-shadow:inset 0 0 0 3px #211c27,0 4px 8px #100c162a; }
 .w-plugin[data-fx=amp] .w-pedal-brand { min-height:44px; padding:9px; border:1px solid #73604c; border-radius:5px; background:repeating-linear-gradient(45deg,#29272d 0 2px,#25232a 2px 4px); color:#f2d4a7; }
 .w-plugin[data-fx=amp] .w-fx-controls { grid-template-columns:repeat(auto-fit,minmax(63px,1fr)); }
+.wb .w-top{display:grid;grid-template-columns:minmax(200px,1fr) auto minmax(200px,auto);align-items:center;gap:12px;padding:0}
+.w-mix-export{display:grid;grid-template-columns:auto auto;align-items:center;gap:4px 9px;padding:8px 10px;border:1px solid var(--w-border);border-radius:10px;background:var(--w-surface)}
+.w-mix-export label{display:flex;align-items:center;gap:6px;font-size:.71rem;white-space:nowrap}
+.w-mix-export output{grid-column:1/-1;color:var(--w-muted);font-size:.71rem;line-height:1.3}
+.w-mix-export output:empty{display:none}
+.w-insert-suggestions{display:grid;gap:6px;padding:7px 0}
+.w-insert-suggestions button{border-radius:20px;min-height:26px;padding:3px 8px}
+.w-instrument-module[data-instrument-kind=fx]{--inst:#8ef4df;--inst-muted:#c4e7e2}
+.w-instrument-module[data-instrument-kind=fx] .w-instrument-hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);align-items:center;gap:16px;background:radial-gradient(ellipse at 85% 0,#25464a,#242032 67%)}
+.w-fx-scope{grid-column:2;grid-row:1;min-width:0;margin:0;border:1px solid #4f7c7b;border-radius:10px;background:#111e28;padding:8px}
+.w-fx-scope canvas{display:block;width:100%;height:auto}
+.w-fx-scope figcaption{display:flex;gap:12px;padding:4px 3px 0;font:.67rem var(--mono);color:#8ef4df}
+.w-fx-scope figcaption span{color:#ffd39e}
+.w-instrument-module[data-instrument-kind=fx] .w-module-ident{grid-column:1;grid-row:1}
+.w-plugin[data-fx=channelEQ] .w-pedal{--inst:#95e6dd;--metal:#234f56}
+.w-plugin[data-fx=dynamics] .w-pedal{--inst:#b7cbff;--metal:#3a405d}
+.w-plugin[data-fx=tape] .w-pedal{--inst:#f4c986;--metal:#593933}
+.w-plugin:is([data-fx=channelEQ],[data-fx=dynamics],[data-fx=tape]) .w-pedal-brand{border-radius:5px;padding:7px;background:#151625b0;border:1px solid #c8b0db47}
+@media(max-width:1270px){.wb .w-top{grid-template-columns:minmax(0,1fr) auto}.w-files{grid-column:2;grid-row:1;justify-content:flex-end}.w-mix-export{grid-column:1/-1;justify-content:space-between}}
+@media(max-width:800px){.wb .w-top{grid-template-columns:minmax(0,1fr);gap:8px}.w-files{grid-column:1;grid-row:2;justify-content:flex-start}.w-project input{width:100%}}
+@media(max-width:560px){.w-mix-export{grid-template-columns:minmax(0,1fr);gap:7px}.w-instrument-module[data-instrument-kind=fx] .w-instrument-hero{grid-template-columns:minmax(0,1fr);gap:10px}.w-fx-scope{grid-column:1;grid-row:2}}

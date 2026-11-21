@@ -1,4 +1,5 @@
 import { butterworthQ, filterValues } from "../eq-dsp.js";
+import { estimateTruePeak } from "../peak-limiter.js";
 import { clamp, noiseFor } from "./host.js";
 import { WInstruments } from "./instruments.js";
 import { WModel } from "./model.js";
@@ -34,12 +35,13 @@ function createStudioEngine(){
   if(impulses.has(key))return impulses.get(key);
   if(impulses.size>=8)impulses.delete(impulses.keys().next().value);
   const ir=a.createBuffer(2,Math.max(1,Math.round(a.sampleRate*seconds)),a.sampleRate);
+  const onset=a.sampleRate/300;
   for(let c=0;c<2;c++){
    let seed=43219+c*7433;
    const data=ir.getChannelData(c);
    for(let i=0;i<data.length;i++){
     seed=(Math.imul(seed,1664525)+1013904223)>>>0;
-    data[i]=(seed/2147483648-1)*Math.pow(1-i/data.length,3)*Math.min(1,i/160);
+    data[i]=(seed/2147483648-1)*Math.pow(1-i/data.length,3)*Math.min(1,i/onset);
    }
   }
   impulses.set(key,ir);return ir;
@@ -74,15 +76,23 @@ function createStudioEngine(){
    const osc=add(a.createOscillator());osc.start();oscillators.push(osc);return osc;
   },dispose(){for(const osc of oscillators)try{osc.stop();}catch{}for(const n of nodes)n.disconnect();}};
  }
- function feedbackDelay(a,src,dest,kit,max=2){
+ function feedbackDelay(a,src,dest,kit,max=2,tape=false){
   const {add,g,biquad}=kit;
   const split=add(a.createChannelSplitter(2)),merge=add(a.createChannelMerger(2)),mix=g(0);
-  src.connect(split);merge.connect(mix).connect(dest);
+  const stereo=g(1);stereo.channelCount=2;stereo.channelCountMode="explicit";
+  src.connect(stereo).connect(split);merge.connect(mix).connect(dest);
   const lines=Array.from({length:2},(_,i)=>{
    const gate=g(1),d=add(a.createDelay(max)),lo=biquad("highpass",90),hi=biquad("lowpass",7000);
    const same=g(0),cross=g(0);
    split.connect(gate,i);gate.connect(d).connect(lo).connect(hi);
-   hi.connect(merge,0,i);hi.connect(same).connect(d);hi.connect(cross);
+   let out=hi;
+   if(tape){
+    const tapeHead=add(a.createWaveShaper());
+    tapeHead.oversample="4x";
+    tapeHead.curve=Float32Array.from({length:1025},(_,n)=>Math.tanh(1.45*(n/512-1))/1.45);
+    out=hi.connect(tapeHead);
+   }
+   out.connect(merge,0,i);out.connect(same).connect(d);out.connect(cross);
    return {gate,d,lo,hi,same,cross};
   });
   lines.forEach((m,i)=>m.cross.connect(lines[1-i].d));
@@ -128,7 +138,29 @@ function createStudioEngine(){
   const input=g(1),output=g(1);
   inNode.connect(input);
   let update;
-  if(fx.kind==="amp"){
+  if(fx.kind==="channelEQ"){
+   const hp=biquad("highpass",20),lo=biquad("lowshelf",160),mid=biquad("peaking",950),hi=biquad("highshelf",5000);
+   const flat=g(1),cut=g(0);hp.Q.value=20*Math.log10(butterworthQ);
+   input.connect(flat).connect(lo);input.connect(hp).connect(cut).connect(lo);lo.connect(mid).connect(hi).connect(output);
+   update=v=>{
+    smooth(hp.frequency,[20,20,45,85,140,240][v.cut],a);
+    smooth(flat.gain,v.cut?0:1,a);smooth(cut.gain,v.cut?1:0,a);
+    smooth(lo.gain,v.low,a);smooth(mid.frequency,v.midHz,a);smooth(mid.Q,v.width,a);
+    smooth(mid.gain,v.mid,a);smooth(hi.gain,v.high,a);
+   };
+  }else if(fx.kind==="dynamics"){
+   const comp=add(a.createDynamicsCompressor());
+   input.connect(comp).connect(output);
+   update=v=>{
+    smooth(comp.threshold,v.threshold,a);smooth(comp.ratio,v.ratio,a);smooth(comp.knee,v.knee,a);
+    smooth(comp.attack,v.attack/1000,a);smooth(comp.release,v.release/1000,a);smooth(output.gain,dB(v.makeup),a);
+   };
+  }else if(fx.kind==="tape"){
+   input.connect(output);
+   const echo=feedbackDelay(a,input,output,kit,4.1,true);
+   update=(v,tempo)=>echo({time:v.sync?[.25,.5,.75,1,2][v.division]*60/tempo:v.time/1000,
+    skew:v.sync?0:.03,feedback:v.feedback/100,wet:v.wet*.006,low:115,high:1250*8**(v.color/100),ping:v.ping/100});
+  }else if(fx.kind==="amp"){
    const amp=amplifier(a,input,kit);
    amp.out.connect(output);
    update=amp.update;
@@ -136,13 +168,15 @@ function createStudioEngine(){
    const dry=g(1),wet=g(0),ir=add(a.createConvolver()),sum=g(1),lo=biquad("highpass",90),hi=biquad("lowpass",8400);
    const splitter=add(a.createChannelSplitter(2)),merger=add(a.createChannelMerger(2));
    const channels=Array.from({length:2},(_,i)=>{
-    const direct=g(1),cross=g(0),mod=add(a.createDelay(.05)),modGain=g(0),send=g(0);
+    const direct=g(1),own=g(1),other=g(-1),widen=g(0),side=biquad("highpass",145),mod=add(a.createDelay(.05)),modGain=g(0),send=g(0);
+    side.Q.value=20*Math.log10(butterworthQ);
     const wave=lfo();mod.delayTime.value=.014+i*.004;
     splitter.connect(direct,i);direct.connect(merger,0,i);
-    splitter.connect(cross,1-i);cross.connect(merger,0,i);
+    splitter.connect(own,i);splitter.connect(other,1-i);
+    own.connect(side);other.connect(side);side.connect(widen).connect(merger,0,i);
     splitter.connect(mod,i);mod.connect(send).connect(merger,0,i);
     wave.connect(modGain).connect(mod.delayTime);
-    return {direct,cross,modGain,send,wave};
+    return {direct,widen,modGain,send,wave};
    });
    input.connect(dry).connect(sum);input.connect(lo).connect(hi).connect(ir).connect(wet).connect(sum);
    const echo=feedbackDelay(a,input,sum,kit);
@@ -152,10 +186,9 @@ function createStudioEngine(){
     if(seconds!==v.room){seconds=v.room;ir.buffer=impulse(a,seconds);}
     smooth(lo.frequency,v.lowcut,a);smooth(hi.frequency,Math.min(a.sampleRate*.46,v.highcut),a);
     smooth(dry.gain,1-v.reverb*.004,a);smooth(wet.gain,v.reverb/110,a);
-    channels.forEach(({direct,cross,modGain,send,wave},i)=>{
-     const wide=v.dimension*.003;
-     smooth(direct.gain,1+wide-v.chorus*.002,a);
-     smooth(cross.gain,-wide,a);smooth(send.gain,v.chorus*.0036,a);
+    channels.forEach(({direct,widen,modGain,send,wave},i)=>{
+     smooth(direct.gain,1-v.chorus*.002,a);
+     smooth(widen.gain,v.dimension*.003,a);smooth(send.gain,v.chorus*.0036,a);
      smooth(modGain.gain,.001+v.chorus*.000065,a);smooth(wave.frequency,v.rate*(1+i*.23),a);
     });
     echo({time:v.delay*.001,skew:v.warp*.004,feedback:Math.min(.78,v.feedback/100),wet:v.wet*.0042,low:v.lowcut,high:v.highcut,ping:v.density/100});
@@ -167,7 +200,7 @@ function createStudioEngine(){
    update=v=>{smooth(dry.gain,v.volume/100,a);smooth(filter.frequency,Math.min(a.sampleRate*.46,v.filter),a);smooth(room.gain,v.room*.0048*v.volume/100,a);};
   }else if(fx.kind==="drumcircuit"){
    const sat=add(a.createWaveShaper()),wet=g(0),dry=g(1),ir=add(a.createConvolver()),room=g(0),s=g(1),post=biquad("highpass",31);
-   ir.buffer=impulse(a,.68);sat.oversample="2x";
+   ir.buffer=impulse(a,.68);sat.oversample="4x";
    input.connect(dry).connect(s);input.connect(sat).connect(post).connect(wet).connect(s);
    s.connect(output);s.connect(ir).connect(room).connect(output);
    const echo=feedbackDelay(a,s,output,kit);
@@ -190,7 +223,7 @@ function createStudioEngine(){
    };
   }else{
    const filter=biquad("lowpass",6500),hp=biquad("highpass",32),clipper=add(a.createWaveShaper()),dry=g(1),wet=g(0);
-   clipper.oversample="2x";
+   clipper.oversample="4x";
    const multi=fx.kind==="drive"?distortionBands(a,input,kit):null;
    const singleDry=g(1),singleWet=g(1),bandDry=g(0),bandWet=g(0);
    input.connect(singleDry).connect(dry).connect(output);
@@ -333,6 +366,10 @@ function createStudioEngine(){
   if(t.kind==="rhodes"){
    opts.midHi=biquad("peaking",2140);eqEnd.connect(opts.midHi);eqEnd=opts.midHi;
   }
+  if(t.kind==="piano"){
+   opts.voicing=biquad("lowpass",14000);opts.voicing.Q.value=20*Math.log10(.68);
+   eqEnd.connect(opts.voicing);eqEnd=opts.voicing;
+  }
   if(t.kind==="rhodes"||t.kind==="synth"){
    const dry=g(1),wet=g(0),sat=add(a.createWaveShaper()),hp=biquad("highpass",65),presence=biquad("peaking",3050);
    sat.oversample="4x";presence.Q.value=.76;
@@ -372,8 +409,9 @@ function createStudioEngine(){
    smooth(eqLow.gain,v.low??0,a);smooth(eqMid.gain,v.mid??0,a);smooth(eqHigh.gain,v.high??0,a);
    smooth(output.gain,(v.level??100)*.01,a);
    if(opts.sat){
-    clipping(opts.sat,v.drive,.05);
-    const wet=v.drive*.0048;
+    const drive=t.kind==="rhodes"?v.drive+[0,0,12][v.model]:v.drive;
+    clipping(opts.sat,drive,.05);
+    const wet=drive*.0048;
     smooth(opts.dry.gain,1-wet,a);smooth(opts.wet.gain,wet*.84,a);
     smooth(opts.presence.gain,v.presence??0,a);
    }
@@ -385,14 +423,26 @@ function createStudioEngine(){
     smooth(cab.lo.frequency,(id===2?5600:7280)*[1,.80,.7][mic],a);
    }
    if(opts.midHi){
-    smooth(opts.midHi.gain,v.midHi,a);smooth(opts.wave.frequency,v.speed,a);
+    smooth(eqLow.gain,v.low+[.3,-.5,.9][v.model],a);
+    smooth(eqHigh.gain,v.high+[-1.1,2.5,.4][v.model],a);
+    smooth(opts.midHi.gain,v.midHi+[0,2.6,1.3][v.model],a);smooth(opts.wave.frequency,v.speed,a);
     opts.trem.forEach(({v:gainNode,d},i)=>{
      smooth(gainNode.gain,1-v.tremolo*.004,a);smooth(d.gain,v.tremolo*.0039*(i?-1:1),a);
     });
     smooth(opts.chor.gain,v.chorus*.004,a);smooth(opts.depth.gain,v.chorus*.00007,a);
     smooth(opts.base.gain,1-v.phaser*.0038,a);smooth(opts.phase.gain,v.phaser*.0038,a);smooth(opts.phaseDepth.gain,v.phaser*4,a);
    }
-   if(t.kind==="piano")smooth(eqHigh.gain,v.high+(v.lid-70)*.095-(v.model===1?2.5:0),a);
+   if(t.kind==="piano"){
+    smooth(eqLow.gain,v.low+[0,.9,-2.4][v.model],a);
+    smooth(eqMid.gain,v.mid+[0,-.9,2.1][v.model],a);
+    smooth(eqHigh.gain,v.high+(v.lid-70)*.095-[0,3.5,1.2][v.model],a);
+    smooth(opts.voicing.frequency,[16500,2550+v.hammer*28,8600][v.model],a);
+   }
+   if(t.kind==="guitar"){
+    smooth(eqLow.gain,v.low+[0,-2,.7][v.model],a);
+    smooth(eqMid.gain,v.mid+[0,1.7,-.9][v.model],a);
+    smooth(eqHigh.gain,v.high+[0,.7,-1.6][v.model],a);
+   }
    if(opts.room)smooth(opts.room.gain,v.room*.0045,a);
    if(opts.echo)opts.echo({time:t.kind==="rhodes"?.32:.27,wet:v.delay*.0049,feedback:.27,low:160,high:6900,ping:.42});
   };
@@ -561,7 +611,11 @@ function createStudioEngine(){
   const job={stop:()=>{for(const src of sources)try{src.stop();}catch{}},node:env};
   voices.add(job);
   sources[0].onended=()=>{voices.delete(job);env.disconnect();pan.disconnect();wet.disconnect();};
-  for(const src of sources){src.start(when);src.stop(end+.012);}
+  for(const src of sources){
+   if(src.loop)src.start(when,(pad*.173+when*.371)%1);
+   else src.start(when);
+   src.stop(end+.012);
+  }
  }
  const oscillatorWaves=new WeakMap();
  function sinePhase(a,phase){
@@ -586,8 +640,64 @@ function createStudioEngine(){
   }
   return bank.get(key);
  }
+ function transitionVoice(a,track,n,when,target,ends,cents,pitchMoves){
+  const v=WInstruments.get(track),model=v.model;
+  const tail=v.release,duration=v.duration,finish=when+duration,stopAt=finish+tail+.02;
+  const pan=a.createStereoPanner(),env=gain(a,0),tone=a.createOscillator();
+  const detune=n.fine+v.tune;
+  const highest=pitchMoves?.reduce((peak,point)=>Math.max(peak,point.value),cents)??cents;
+  const nyquist=a.sampleRate*.46,limit=x=>clamp(x,20,nyquist);
+  const limitTone=x=>clamp(x,12,nyquist/2**(Math.max(0,detune+highest)/1200));
+  const base=WPhysical.hz(n.pitch-(model===2?24:0)),ratio=2**(v.sweep/12);
+  const [first,last]=[[base/ratio,base],[base*ratio,base],[base*ratio,base],[base,base]][model].map(limitTone);
+  const rise=[duration*.70,.018,.007,Math.min(.6,duration*.35)][model];
+  const level=.30*(n.velocity/127)**(v.touch*.0118);
+  const width=v.stereo/100,noise=a.createBufferSource(),filter=a.createBiquadFilter();
+  const shadow=a.createDelay(.03),split=a.createStereoPanner(),air=gain(a,v.density/100),direct=gain(a,.72);
+  const brightness=Math.min(v.cutoff,n.cutoff);
+  pan.pan.value=n.pan/100;shadow.delayTime.value=.011*width;
+  split.pan.value=width*.77;
+  const balance=a.createStereoPanner();balance.pan.value=-width*.77;
+  filter.type=model===3?"bandpass":"lowpass";
+  filter.Q.value=filterValues({type:filter.type,frequency:brightness,q:model===3?1.15:.68},a.sampleRate).Q;
+  const [cutFrom,cutTo]=[[.05,1],[1,.07],[1,.12],[.22,.62]][model];
+  filter.frequency.setValueAtTime(limit(brightness*cutFrom),when);
+  filter.frequency.exponentialRampToValueAtTime(limit(brightness*cutTo),finish);
+  noise.buffer=noiseFor(a);noise.loop=true;
+  noise.connect(filter).connect(air);air.connect(direct).connect(balance).connect(env);
+  air.connect(shadow).connect(gain(a,.46*width)).connect(split).connect(env);
+  tone.type=model===3?"triangle":"sine";
+  tone.frequency.setValueAtTime(first,when);
+  tone.frequency.exponentialRampToValueAtTime(last,model===2?when+Math.min(.16,duration):finish);
+  tone.detune.setValueAtTime(detune+cents,when);
+  for(const point of pitchMoves||[])tone.detune.linearRampToValueAtTime(detune+point.value,point.time);
+  tone.connect(gain(a,[.36,.57,.93,.31][model]*(1-v.density*.007))).connect(env);
+  env.connect(pan).connect(target);
+  env.gain.setValueAtTime(0,when);env.gain.linearRampToValueAtTime(level,when+rise);
+  env.gain.exponentialRampToValueAtTime(Math.max(.000001,level*[.80,.18,.014,.63][model]),finish);
+  env.gain.exponentialRampToValueAtTime(.000001,stopAt-.01);env.gain.linearRampToValueAtTime(0,stopAt);
+  tone.start(when);noise.start(when,(n.pitch*.131+when*.19)%1);
+  tone.stop(stopAt);noise.stop(stopAt);
+  let released=false;
+  const job={track:track.id,key:n.pitch,node:pan,stop(){
+   for(const source of [tone,noise])try{source.stop();}catch{}
+  },release(at=a.currentTime){
+   if(released||model!==3||at>=finish)return;
+   released=true;
+   const t=Math.max(at,when+.006);
+   const current=t<when+rise?level*(t-when)/rise:level*.63**((t-when-rise)/(duration-rise));
+   env.gain.cancelScheduledValues(t);env.gain.linearRampToValueAtTime(Math.max(.000001,current),t);
+   const end=Math.min(stopAt,t+tail+.02);
+   env.gain.exponentialRampToValueAtTime(.000001,end-.01);
+   env.gain.linearRampToValueAtTime(0,end);tone.stop(end);noise.stop(end);
+  }};
+  tone.onended=()=>{voices.delete(job);pan.disconnect();};
+  voices.add(job);if(ends!==null)job.release(ends);
+  return job;
+ }
  function voice(a,track,n,when,target,ends=null,cents=0,pitchMoves=null){
   if(track.kind==="drums"){hit(a,((n.pitch-60)%8+8)%8,when,target,track,n.velocity/127);return null;}
+  if(track.kind==="fx")return transitionVoice(a,track,n,when,target,ends,cents,pitchMoves);
   if(!WModel.types[track.kind]?.[1]||track.kind==="audio")return null;
   const [,,defaultRelease,maxTone,amplitude]=WModel.types[track.kind];
   const kind=track.kind,cfg=WInstruments.get(track),guitar=WInstruments.isGuitar(kind);
@@ -597,8 +707,12 @@ function createStudioEngine(){
   if(rake&&pitchMoves)pitchMoves=pitchMoves.map(move=>({...move,time:move.time+rake}));
   let sustain=guitar?track.mix.fx.find(f=>f.kind==="sustain"&&f.enabled)?.values:null;
   const env=gain(a,0),lp=a.createBiquadFilter(),pan=a.createStereoPanner(),oscs=[],voicesForNote=[];
-  const defaultCut=Math.min(n.cutoff,maxTone*(.4+track.timbre*.015),a.sampleRate*.46);
-  const attack=kind==="synth"?cfg.attack:Math.max(.001,guitar?track.attack*[1,1.7,.7,1.2][cfg.articulation]:track.attack);
+  const velocity=n.velocity/127;
+  const brightness=kind==="flute"||kind==="cello"?.78+velocity*.27:1;
+  const defaultCut=Math.min(n.cutoff,maxTone*(.4+track.timbre*.015)*brightness,a.sampleRate*.46);
+  const articulation=guitar?[1,1.7,.7,1.2][cfg.articulation]:1;
+  const onset=kind==="cello"||kind==="flute"?1.32-velocity*.49:1;
+  const attack=kind==="synth"?cfg.attack:Math.max(.001,track.attack*articulation*onset);
   const level=amplitude*(n.velocity/127)**((cfg.touch??100)*.0118);
   lp.type=kind==="synth"?["lowpass","bandpass","highpass"][cfg.filterType]:"lowpass";
   const cut=kind==="synth"?Math.min(n.cutoff,cfg.cutoff,a.sampleRate*.46):defaultCut;
@@ -640,8 +754,14 @@ function createStudioEngine(){
    }
    if(pitchMoves)for(const item of pitchMoves)oscillator.detune.linearRampToValueAtTime(n.fine+extra+tune+item.value,item.time);
    if(mode.fm>0){
-    const l=a.createOscillator(),index=gain(a,mode.hz*2*Math.min(mode.fm,Math.max(.08,a.sampleRate*.43/(mode.hz*2)-1)));
-    l.frequency.value=mode.hz*2; l.connect(index).connect(oscillator.frequency);l.start(when);oscs.push(l);
+    const room=a.sampleRate*.43/(mode.hz*2**((guard+Math.abs(tune))/1200));
+    const amount=clamp((room-1)/2-1,0,mode.fm);
+    if(amount>0){
+     const l=a.createOscillator(),index=gain(a,mode.hz*2*amount);
+     l.frequency.value=mode.hz*2;l.detune.setValueAtTime(pitch+tune,when);
+     if(pitchMoves)for(const item of pitchMoves)l.detune.linearRampToValueAtTime(n.fine+extra+tune+item.value,item.time);
+     l.connect(index).connect(oscillator.frequency);l.start(when);oscs.push(l);
+    }
    }
    if(mode.decay)part.gain.setTargetAtTime(mode.amp*Math.max(mode.remain,sustain?sustain.amount*.0098:0),when+.015,mode.decay);
    if(depth)depth.connect(oscillator.detune);
@@ -653,7 +773,7 @@ function createStudioEngine(){
    air.buffer=noiseFor(a);air.loop=Boolean(profile.breath);filter.type="bandpass";
    filter.frequency.value=guitar?[frequency,frequency*.77,frequency*1.26,frequency*.91][cfg.articulation]:frequency;
    filter.Q.value=.82;
-   const volume=amount*(.45+n.velocity/197)*(cfg.noise===undefined?1:cfg.noise*.032)*(take?.kind==="electric"?.72:1);
+   const volume=amount*(.42+velocity*.64)*(cfg.noise===undefined?1:cfg.noise*.032)*(take?.kind==="electric"?.72:1);
    breath.gain.setValueAtTime(0,when);breath.gain.linearRampToValueAtTime(volume,when+.005);
    breath.gain.setTargetAtTime(profile.breath?amount*.38:0,when+.008,decay);
    air.connect(filter).connect(breath).connect(lp);air.start(when,(n.pitch*.083+when*.35)%(.54*air.buffer.duration));oscs.push(air);
@@ -793,7 +913,7 @@ function createStudioEngine(){
   let timeout,eventTimer;
   const clipJob={node:pan,stop:()=>{clearTimeout(timeout);clearInterval(eventTimer);target.disconnect();pan.disconnect();}};
   voices.add(clipJob);
-  const finish=when(last)+6;
+  const finish=when(last)+8;
   const cleanup=()=>{
    const remaining=(finish-a.currentTime)*1000;
    if(remaining>0){timeout=setTimeout(cleanup,Math.min(remaining,2147483647));return;}
@@ -850,39 +970,49 @@ function createStudioEngine(){
 }
 
 const WDSP=createStudioEngine();
-async function renderStudioMix(project){
- const sampleRate=48000,spb=60/project.bpm;
+const studioRates=[48000,96000];
+async function renderStudioMix(project,sampleRate=studioRates[0]){
+ if(!studioRates.includes(sampleRate))throw new Error("Frecuencia de muestreo no compatible.");
+ const spb=60/project.bpm;
  let end=0,hasNotes=false;
  for(const track of project.tracks)for(const clip of track.clips){
   end=Math.max(end,(clip.start+clip.length)*spb);
   hasNotes||=Boolean(clip.asset||clip.notes.length||clip.layers.length);
  }
- if(!hasNotes)throw new Error("Añade notas o audio al arreglo antes de subir la mezcla.");
+ if(!hasNotes)throw new Error("Añade notas o audio al arreglo antes de exportar la mezcla.");
  const engine=createStudioEngine();
  const latency=engine.delayPlan(project,sampleRate).base+WModel.manualMs(project.master,project.bpm,sampleRate)/1000;
- const frames=Math.ceil((end+Math.max(0,latency)+6)*sampleRate);
- if(frames>15000000)throw new Error("Para subir la mezcla, el arreglo debe durar como máximo unos 5 minutos.");
+ const finish=end+Math.max(0,latency);
+ if(finish>300)throw new Error("El arreglo con su compensación de latencia debe durar como máximo 5 minutos.");
+ const frames=Math.ceil((finish+14)*sampleRate);
  const offline=new OfflineAudioContext(2,frames,sampleRate);
  const prepared=await engine.prepare(offline,project);
  engine.apply(offline,project,offline.destination);
  for(const track of project.tracks)for(const clip of track.clips)engine.playClip(offline,project,track,clip,0,0,clip.start+clip.length,prepared);
  const rendered=await offline.startRendering();
  const channels=[rendered.getChannelData(0),rendered.getChannelData(1)];
+ const silence=10**(-76/20);
  let peak=0,last=0;
  for(const samples of channels)for(let i=0;i<samples.length;i++){
   const value=Math.abs(samples[i]);
   peak=Math.max(peak,value);
-  if(value>10**(-76/20))last=Math.max(last,i);
+  if(value>silence)last=Math.max(last,i);
  }
  if(!Number.isFinite(peak)||peak<1e-5)throw new Error("La mezcla está en silencio. Revisa las pistas y el máster.");
- const length=Math.min(frames,Math.max(Math.ceil((end+Math.max(0,latency))*sampleRate),last+Math.ceil(.065*sampleRate)));
- const buffer=offline.createBuffer(2,length,sampleRate);
- const gain=peak>.98?.98/peak:1;
+ const length=Math.min(frames,Math.max(Math.ceil(finish*sampleRate),last+Math.ceil(.065*sampleRate)));
+ if(length===frames){
+  const fade=Math.ceil(.080*sampleRate);
+  for(const samples of channels)for(let i=0;i<fade;i++)samples[frames-fade+i]*=(fade-1-i)/fade;
+ }
+ const ceiling=10**(-1/20);
+ const gain=Math.min(1,ceiling/estimateTruePeak(channels,length,peak,ceiling));
  channels.forEach((samples,channel)=>{
-  const target=buffer.getChannelData(channel);
-  for(let i=0;i<length;i++)target[i]=samples[i]*gain;
+  if(gain<1)for(let i=0;i<length;i++)samples[i]*=gain;
  });
+ if(length===frames)return rendered;
+ const buffer=offline.createBuffer(2,length,sampleRate);
+ channels.forEach((samples,channel)=>buffer.copyToChannel(samples.subarray(0,length),channel));
  return buffer;
 }
 
-export { WDSP, renderStudioMix };
+export { WDSP, renderStudioMix, studioRates };

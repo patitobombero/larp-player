@@ -2,13 +2,13 @@ import { ctx, readyAudio as sound, studioInput } from "../audio.js";
 import { media } from "../client.js";
 import { navigation, session } from "../state.js";
 import { addLibraryFile, refreshLibrary } from "../library.js";
-import { encodeWav } from "../wav.js";
+import { downloadFile, encodeWav } from "../wav.js";
 import { $, btn, clamp, esc, fmt, isOpen, names, openPreview, out, palette, sources, toast, uid } from "./host.js";
 import { WInstruments } from "./instruments.js";
 import { WModel } from "./model.js";
 import { WMidi } from "./midi.js";
 import { WTempo } from "./tempo.js";
-import { renderStudioMix, WDSP } from "./dsp.js";
+import { renderStudioMix, studioRates, WDSP } from "./dsp.js";
 import { WRecord } from "./recording.js";
 import { prepareTakes } from "./takes.js";
 const StudioWorkbench=(()=>{
@@ -17,7 +17,7 @@ const StudioWorkbench=(()=>{
  let channelLane="velocity",record=false,head=0,transport=null,generation=0,enabled=true;
  let undo=[],redo=[],meters=0,audition=null,rackBar=0,selectedPad=0,drumTake=null,drumSnap=false,rackRoot=60;
  let takeClock=null,micTake=null;
- let projectUpload=null, openingProject=null;
+ let projectUpload=null, openingProject=null, exportRate=studioRates[0];
  let editTarget="",clipboard=null,notePasteBeat=null,arrangePasteBeat=null;
  const keys=new Map(),fxPads=new Map(),sessions=new Map();
  const compact=(n,prec=2)=>Number(n.toFixed(prec));
@@ -40,6 +40,15 @@ const StudioWorkbench=(()=>{
  const slider=(label,n,min,max,props,step=1)=>'<label class="w-slider"><span>'+label+' <output>'+compact(n,3)+'</output></span><input type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+n+'" '+props+'></label>';
  const fileInput=(id,label,accept)=>'<label class="file-button" tabindex="0">'+label+'<input type="file" id="'+id+'" accept="'+accept+'"></label>';
  const meter=(id)=>'<div class="w-meter" data-meter="'+id+'"><i></i></div>';
+ const insertSuggestions={
+  electric:["amp","drive","sustain","tape"],guitar:["channelEQ","dynamics","space"],piano:["channelEQ","space"],
+  rhodes:["dynamics","space","tape"],synth:["channelEQ","tape","space"],bass:["channelEQ","dynamics","amp"],
+  bass808:["channelEQ","dynamics"],flute:["channelEQ","space"],cello:["channelEQ","dynamics","space"],
+  drums:["padvault","channelEQ","drumcircuit","dynamics"],fx:["channelEQ","tape","space"],
+  audio:["bpm","channelEQ","dynamics"],bus:["channelEQ","dynamics"]
+ };
+ const insertNames={amp:"Amplificador",drive:"Overdrive",sustain:"Sustain",space:"Reverb / Chorus",padvault:"Pad Vault",
+  drumcircuit:"Drum Circuit",bpm:"Calibrar BPM",channelEQ:"EQ",dynamics:"Dinámica",tape:"Tape Echo"};
  function syncGraph(){if(ctx&&enabled)WDSP.apply(ctx,project,studioInput);}
  async function audio(){await sound();if(enabled)syncGraph();}
  function pick(t,c=null){
@@ -265,6 +274,7 @@ const StudioWorkbench=(()=>{
     (m.sends.map(s=>'<div class="w-send">'+slider("Envío a "+esc(labelT(s.to)),s.level,-60,0,'data-send-level="'+s.to+'"',.1)+btn("Quitar",'data-remove-send="'+s.to+'" aria-label="Quitar envío a '+esc(labelT(s.to))+'"')+'</div>').join(""))+
     (sends.length?'<div class="w-row"><select aria-label="Bus de envío paralelo" id="w-send-to">'+options(sends,"")+'</select>'+btn("Añadir envío","id=w-add-send")+'</div>':"")+'</div>':'';
   const fx=Object.entries(WModel.effects).filter(([k])=>WModel.pluginAllowed(t?.kind||"bus",k)&&!(k==="bpm"&&m.fx.some(f=>f.kind===k)));
+  const suggested=insertSuggestions[t?.kind||"bus"].filter(key=>!m.fx.some(f=>f.kind===key));
   return '<div class="w-ed-head"><div><h2>Mixer</h2><small>Master, inserts y envíos paralelos</small></div><button data-add-kind="bus">＋ Bus</button></div>'+
    '<div class="w-mix-content"><div class="w-mix-board">'+strip(null,project.master)+'<div class="w-strips w-scroll">'+project.tracks.map(x=>strip(x,x.mix)).join("")+'</div><canvas class="w-cables" width="1080" height="48" aria-label="Conexiones del canal seleccionado"></canvas></div>'+
    '<aside class="w-insert"><div class="w-insert-title"><h3>'+esc(labelT(id))+'</h3><span class="w-mix-peak" data-peak="'+id+'">−∞ dBFS</span></div>'+
@@ -274,6 +284,8 @@ const StudioWorkbench=(()=>{
    '<details id="w-clock-details"><summary>Compensación de latencia</summary><div class="w-row"><label class="w-jump">Unidad <select id="w-latency-unit">'+options([["ms","ms"],["samples","Muestras"],["beats","Pulsos"]],m.unit)+'</select></label>'+
    float("Ajuste","w-latency-val",m.time,t?-500000:0,500000,m.unit==="samples"?1:.001)+btn("Restaurar","id=w-latency-reset")+'</div><small id="w-latency-effective">'+compact(WModel.manualMs(m,project.bpm,ctx?.sampleRate||48000),3)+' ms de corrección manual</small></details>'+
    '<div class="w-fx-head"><b>Plugins · '+m.fx.length+'</b>'+(fx.length?'<select id="w-plugin-select" aria-label="Plugin compatible">'+options(fx.map(([k,e])=>[k,e.title]),"")+'</select>'+btn("Añadir","id=w-add-fx"):"")+'</div>'+
+   (suggested.length?'<div class="w-insert-suggestions"><small>Sugeridos para '+esc(t?WModel.types[t.kind][0]:"el máster")+'</small><div class="w-row">'+
+    suggested.map(key=>btn("＋ "+insertNames[key],'data-add-insert="'+key+'" title="'+esc(WModel.effects[key].title)+'"')).join("")+'</div></div>':"")+
    (m.fx.map((fx,i)=>fxPanel(fx,i,m.fx.length)).join("")||'<small class="w-fx-none">'+(fx.length?"Esta cadena está vacía.":t?.kind==="drums"?"Abre Larp Drums desde la pista de Batería.":"Sin plugins disponibles para este canal.")+'</small>')+'</aside></div>';
  }
  function dial(label,min,max,value,attribute,step=1,unit=""){
@@ -313,6 +325,7 @@ const StudioWorkbench=(()=>{
    dial(p.label,p.min,p.max,v[key],'data-instrument-param="'+key+'"',p.step,p.unit);
   const presets=[["-1","Ajuste propio"],...d.presets.map(([label],i)=>[String(i),label])];
   return '<div class="w-instrument-module" data-instrument-kind="'+t.kind+'"><div class="w-instrument-hero">'+
+   (t.kind==="fx"?'<figure class="w-fx-scope"><canvas width="520" height="138" aria-label="Contorno de la frecuencia y de la envolvente del efecto"></canvas><figcaption>Frecuencia <span>Envolvente</span></figcaption></figure>':"")+
    '<div class="w-module-ident"><h2>'+d.title+'</h2><div class="w-module-pickers">'+renderControl("model",d.models)+
    '<label class="w-module-select"><span>Preset</span><select id="w-instrument-preset" aria-label="Preset del instrumento">'+options(presets,String(t.instrumentPreset??-1))+'</select></label></div>'+
    '<div class="w-row">'+recordMenu("keys","Grabar instrumento","w-record",!can)+(can?previewButton():"")+
@@ -320,6 +333,34 @@ const StudioWorkbench=(()=>{
    '<div class="w-module-groups">'+d.panels.map(([name,items])=>'<fieldset><legend>'+esc(name)+'</legend><div class="w-module-controls">'+
     Object.entries(items).map(([key,p])=>renderControl(key,p)).join("")+'</div></fieldset>').join("")+'</div>'+
    manual()+'</div>';
+ }
+ function drawFxContour(){
+  const canvas=out.querySelector(".w-fx-scope canvas");if(!canvas)return;
+  const v=WInstruments.get(pTrack()),g=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
+  const from=[.06,.87,.88,.39][v.model],to=[.84,.16,.15,.62][v.model];
+  const rise=[.70,.018/v.duration,.007/v.duration,Math.min(.35,.6/v.duration)][v.model];
+  const sustain=[.80,.18,.014,.63][v.model],sweep=v.sweep/48;
+  g.clearRect(0,0,w,h);g.strokeStyle="#56676f";g.lineWidth=1;
+  g.beginPath();
+  for(let x=12;x<w;x+=31){g.moveTo(x,0);g.lineTo(x,h);}
+  for(let y=11;y<h;y+=24){g.moveTo(0,y);g.lineTo(w,y);}
+  g.stroke();
+  const plot=(color,dashed,fn)=>{
+   g.beginPath();g.strokeStyle=color;g.lineWidth=2.3;g.setLineDash(dashed?[5,5]:[]);
+   for(let i=0;i<=150;i++){
+    const t=i/150,x=8+t*(w-16),y=h-9-fn(t)*(h-18);
+    if(i)g.lineTo(x,y);else g.moveTo(x,y);
+   }
+   g.stroke();g.setLineDash([]);
+  };
+  const gate=v.duration/(v.duration+v.release);
+  plot("#8ef4df",false,t=>.48+(from+(to-from)*Math.min(1,t/gate)**(v.model===2? .23:1)-.48)*sweep);
+  plot("#ffd39e",true,t=>{
+   const span=t/gate;
+   if(span<rise)return span/rise;
+   if(span<1)return sustain**((span-rise)/(1-rise));
+   return sustain*Math.max(0,1-(t-gate)/(1-gate))**3;
+  });
  }
  function instrument(){
   const t=pTrack();
@@ -344,9 +385,13 @@ const StudioWorkbench=(()=>{
   const visibleTabs=["Piano roll","Channel rack","Mixer","Clips de audio"].concat(ts?.kind==="drums"?["Larp Drums"]:title?[title]:[]).concat(mode==="Automatización"?["Automatización"]:[]);
   if(mode!=="Larp Drums"&&mode.startsWith("Larp ")&&mode!==title)mode=title||"Piano roll";
   const hasPanel=mode===title&&Boolean(title);
+  const exporting=projectUpload?.owner===owner?projectUpload:null;
   if(mode==="Larp Drums"&&ts?.kind!=="drums")mode="Piano roll";
   if(mode!=="Larp Drums"&&drumTake)endInstrumentTake();
-  out.innerHTML='<div class="wb"><div class="w-top"><div class="w-project"><span>ESTUDIO</span><input id="w-project-name" aria-label="Nombre del proyecto" maxlength="80" value="'+esc(project.name)+'"></div><div class="w-row w-files">'+btn("Nuevo","id=w-new")+fileInput("w-open","Abrir proyecto",".json,application/json")+fileInput("w-midi","Importar MIDI",".mid,.midi,audio/midi")+btn("Guardar proyecto","id=w-save")+btn(projectUpload&&projectUpload.owner===owner?"Subiendo…":"Subir",'id=w-upload title="Subir la mezcla WAV a Biblioteca → Pistas" '+(projectUpload&&projectUpload.owner===owner?"disabled":""))+btn("Proyectos anteriores","id=w-legacy")+'</div></div>'+
+  out.innerHTML='<div class="wb"><div class="w-top"><div class="w-project"><span>ESTUDIO</span><input id="w-project-name" aria-label="Nombre del proyecto" maxlength="80" value="'+esc(project.name)+'"></div><div class="w-row w-files">'+btn("Nuevo","id=w-new")+fileInput("w-open","Abrir proyecto",".json,application/json")+fileInput("w-midi","Importar MIDI",".mid,.midi,audio/midi")+btn("Guardar proyecto","id=w-save")+btn("Proyectos anteriores","id=w-legacy")+'</div>'+
+    '<section class="w-mix-export" aria-label="Exportar mezcla"><label><span>WAV estéreo · 24 bits</span><select id="w-export-rate" aria-label="Frecuencia de exportación" '+(exporting?"disabled":"")+'>'+options(studioRates.map(rate=>[rate,rate/1000+" kHz"]),exportRate)+'</select></label><div class="w-row">'+
+    btn("Descargar WAV","id=w-download-mix "+(exporting?"disabled":""))+btn("Subir",'id=w-upload title="Subir la mezcla WAV a Biblioteca → Pistas" '+(exporting?"disabled":""),"primary")+'</div>'+
+    '<output id="w-export-status" aria-live="polite">'+esc(exporting?.message||"")+'</output></section></div>'+
     '<div class="w-transport"><div class="w-row">'+btn(play?"■ Detener":"▸ Reproducir","id=w-play",play?"":"primary")+
     (mode==="Larp Drums"||hasPanel?"":recordMenu("keys","Grabar instrumento","w-record",!ts||!cs||["audio","bus"].includes(ts.kind)))+recordMenu("mic","Grabar audio","w-mic-record")+
     '<div class="w-counter"><span id="w-position">'+formatPos(head)+'</span><small>COMPÁS · PULSO</small></div>'+
@@ -358,7 +403,7 @@ const StudioWorkbench=(()=>{
       (cs?btn("Quitar clip","id=w-remove-clip"):"")+'</div>'+
     (hasPanel?instrumentModule():({ "Piano roll":piano,"Channel rack":rack,"Mixer":mixer,"Clips de audio":clips,"Larp Drums":drums,"Automatización":automationPanel }[mode])())+'</section>'+
     (hasPanel?"":instrument())+(mode==="Larp Drums"||hasPanel?"":manual())+'</div>';
-  bind();bindKitPanel();updateRecordingStatus();restoreScroll();drawRulers();drawAutomation();paintClipWaves();drawCables();
+  bind();bindKitPanel();updateRecordingStatus();restoreScroll();drawRulers();drawAutomation();paintClipWaves();drawCables();drawFxContour();
   if(mode==="Mixer"||play||audition)tick();
  }
  function tick(){
@@ -636,30 +681,31 @@ const StudioWorkbench=(()=>{
   a.href=href;a.download=projectFilename();
   a.click();setTimeout(()=>URL.revokeObjectURL(href),5000);toast("Proyecto guardado como archivo local.");
  }
- async function uploadProject(){
-  const identity=session.user?.id;
-  if(!identity){toast("Inicia sesión para subir la mezcla a tu Biblioteca.");return;}
-  if(takeClock||micTake){toast("Detén la grabación antes de subir la mezcla.");return;}
+ async function exportMix(upload){
+  const identity=owner;
+  if(upload&&!session.user?.id){toast("Inicia sesión para subir la mezcla a tu Biblioteca.");return;}
+  if(takeClock||micTake){toast("Detén la grabación antes de exportar la mezcla.");return;}
   if(projectUpload?.owner===identity)return;
-  const ticket={owner:identity};projectUpload=ticket;
+  const rate=exportRate,title=projectFilename().replace(/\.larp\.json$/i,""),snapshot=copyProject();
+  const ticket={owner:identity,message:"Renderizando mezcla…"};projectUpload=ticket;
+  const sameAccount=()=>(session.user?.id||"guest")===identity;
   render();
   try{
-   const title=projectFilename().replace(/\.larp\.json$/i,"");
-   const snapshot=structuredClone(project);
    const status=text=>{
-    const button=$("#w-upload");
-    if(button&&session.user?.id===identity)button.textContent=text;
+    ticket.message=text;
+    const output=$("#w-export-status");
+    if(output&&sameAccount())output.textContent=text;
    };
-   status("Renderizando…");
-   const buffer=await renderStudioMix(snapshot);
-   if(session.user?.id!==identity)return;
-   const file=encodeWav(buffer,title+".wav",24);
+   const buffer=await renderStudioMix(snapshot,rate);
+   if(!sameAccount())return;
+   const file=encodeWav(buffer,title+".wav",24,{dither:true});
+   if(!upload){downloadFile(file);toast("Mezcla WAV descargada.");return;}
    await addLibraryFile(file,(bytes,total)=>status("Subiendo "+Math.round(bytes/total*100)+" %"));
-   if(session.user?.id===identity){
+   if(sameAccount()){
     toast("Mezcla WAV guardada en Biblioteca → Pistas.");
     if(["lib","pl"].includes(session.page))refreshLibrary().catch(()=>{});
    }
-  }catch(error){if(session.user?.id===identity)toast(error.message);}
+  }catch(error){if(sameAccount())toast(error.message);}
   finally{if(projectUpload===ticket){projectUpload=null;if(isOpen())render();}}
  }
  async function openLibraryProject(item){
@@ -1244,7 +1290,9 @@ const StudioWorkbench=(()=>{
   click("#w-add-pattern",addPattern);
   click("#w-legacy",()=>navigation.go("syn-legacy"));
   click("#w-new",()=>{if(!project.tracks.length||confirm("¿Abrir un proyecto vacío? Guarda primero si quieres conservar los cambios."))clearProject();});
-  click("#w-save",saveProject);click("#w-upload",uploadProject);change("#w-open",el=>readFile(el.files[0]));change("#w-midi",el=>{importMidi(el.files[0]);el.value="";});
+  click("#w-save",saveProject);click("#w-upload",()=>exportMix(true));click("#w-download-mix",()=>exportMix(false));
+  change("#w-export-rate",el=>{exportRate=+el.value;});
+  change("#w-open",el=>readFile(el.files[0]));change("#w-midi",el=>{importMidi(el.files[0]);el.value="";});
   change("#w-project-name",el=>{checkpoint();project.name=el.value.trim()||"Proyecto sin título";el.value=project.name;});
   change("#w-bpm",el=>{stop();mutate(()=>{
    const prev=project.bpm;project.bpm=clamp(+el.value||prev,30,300);
@@ -1457,13 +1505,15 @@ const StudioWorkbench=(()=>{
   });
   change("#w-latency-val",el=>setLatency(+el.value,aMixer().unit));
   click("#w-latency-reset",()=>setLatency(0,aMixer().unit));
-  click("#w-add-fx",()=>{
-   const m=aMixer(),kind=get("#w-plugin-select").value;
+  function addInsert(kind){
+   const m=aMixer();
    if(!WModel.pluginAllowed(inst()?.kind||"bus",kind))return;
    if(kind==="bpm"){enableCalibrator(inst());return;}
    if(m.fx.length>=32){toast("La cadena admite hasta 32 instancias.");return;}
    mutate(()=>m.fx.push(WModel.plugin(kind)));
-  });
+  }
+  click("#w-add-fx",()=>addInsert(get("#w-plugin-select").value));
+  all("[data-add-insert]","click",el=>addInsert(el.dataset.addInsert));
   all("[data-fx-bypass]","click",el=>{
    const f=aMixer().fx.find(x=>x.id===el.dataset.fxBypass);
    if(f.kind==="bpm"){toggleCalibrator(inst());return;}
@@ -1518,7 +1568,7 @@ const StudioWorkbench=(()=>{
    if(!p)return;
    t.instrument[el.dataset.instrumentParam]=+el.value;t.instrumentPreset=-1;
    const preset=get("#w-instrument-preset");if(preset)preset.value="-1";
-   syncGraph();
+   syncGraph();if(t.kind==="fx")drawFxContour();
   }
   input('input[data-instrument-param]',el=>setInstrument(el));
   all('select[data-instrument-param]',"change",el=>setInstrument(el,true));
