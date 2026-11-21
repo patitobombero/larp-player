@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "larp-player",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-06-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LARP",
+        "class_name": "LarpStore"
+      },
+      {
+        "name": "MEDIA",
+        "class_name": "LarpMediaV2"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "LarpStore"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "LarpMediaV2"
+      ]
+    }
+  ]
+}

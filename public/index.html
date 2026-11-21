@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#151620">
+  <title>Larp Player</title>
+  <link rel="icon" href="/icon.png">
+  <link rel="stylesheet" href="/style.css?v=8">
+  <link rel="stylesheet" href="/css/ddj.css?v=10">
+  <link rel="stylesheet" href="/css/workbench.css?v=7">
+</head>
+<body>
+  <div id="app">
+    <aside id="side">
+      <button id="brand" aria-label="Larp Player, abrir biblioteca">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="brand-name">Larp <strong>Player</strong></span>
+      </button>
+      <nav id="nav" aria-label="Navegación principal"></nav>
+      <button class="g sidebar-notices" type="button" id="notice-button" aria-haspopup="dialog" hidden>Avisos <span id="notice-count" hidden></span></button>
+      <button class="sidebar-profile" id="quick-profile" aria-label="Abrir mi perfil"><span class="profile-icon" aria-hidden="true">◎</span><span class="profile-copy"><b>Mi cuenta</b><small>Perfil y apariencia</small></span></button>
+    </aside>
+    <main id="main"></main>
+  </div>
+  <footer id="bar" aria-label="Controles del reproductor">
+    <div class="playing-title"><button class="player-vinyl" id="record-toggle" type="button" aria-label="Reproducir"><img id="disc-cover" src="/assets/larp-disc.webp" alt="" width="112" height="112" draggable="false"><span aria-hidden="true"></span></button><span><b id="now">Sin pista</b><small id="player-source">Biblioteca</small></span></div>
+    <div class="player-main">
+      <div class="player-buttons">
+        <button class="g player-option" id="shuffle" title="Aleatorio" aria-label="Orden aleatorio" aria-pressed="false">⤨</button>
+        <button class="g" id="prev" aria-label="Pista anterior"><span aria-hidden="true"></span></button>
+        <button class="b" id="pp" aria-label="Reproducir"><span aria-hidden="true"></span></button>
+        <button class="g" id="next" aria-label="Pista siguiente"><span aria-hidden="true"></span></button>
+        <button class="g player-option" id="repeat" aria-label="Repetir" aria-pressed="false">↻</button>
+      </div>
+      <div class="seek-line"><time id="tm">0:00</time><input type="range" id="seek" aria-label="Posición de reproducción" min="0" max="1000" value="0"><time id="duration">0:00</time></div>
+    </div>
+    <div class="player-misc"><button class="g" id="open-queue" title="Cola de reproducción" aria-label="Cola de reproducción" aria-haspopup="dialog">☷</button><button class="g" id="vi" aria-label="Silenciar" aria-pressed="false">◖))</button>
+      <input type="range" id="vol" aria-label="Volumen" min="0" max="100" value="80">
+      <button class="g" id="collapse-player" title="Recoger reproductor" aria-label="Recoger reproductor" aria-expanded="true">⌄</button></div>
+  </footer>
+  <dialog id="player-queue" class="audio-dialog"><div class="section-line">
+    <h2>Cola de reproducción</h2><form method="dialog"><button class="g" aria-label="Cerrar cola">Cerrar</button></form></div>
+    <p class="muted" id="queue-current"></p><ol id="queue-items"></ol>
+  </dialog>
+  <dialog class="image-dialog" id="image-zoom">
+    <form method="dialog"><button class="g" aria-label="Cerrar foto">Cerrar</button></form>
+    <figure><img alt=""><figcaption></figcaption></figure>
+  </dialog>
+  <dialog class="audio-dialog" id="notice-panel" aria-labelledby="notice-title">
+    <div class="section-line"><h2 id="notice-title">Avisos</h2><form method="dialog"><button class="g">Cerrar</button></form></div>
+    <div class="actions"><button class="g" type="button" id="notice-read">Marcar todo como leído</button><button class="g" type="button" id="notice-mute">Silenciar avisos</button></div>
+    <label class="field">Actividad <select id="notice-filter"><option value="all">Toda</option><option value="message">Mensajes y adjuntos</option><option value="comment">Comentarios</option><option value="rating">Calificaciones</option><option value="post">Publicaciones</option></select></label>
+    <ul id="notice-items"></ul>
+  </dialog>
+  <dialog class="audio-dialog" id="member-panel" aria-labelledby="member-title">
+    <div class="section-line"><h2 id="member-title">Perfil</h2><form method="dialog"><button class="g">Cerrar</button></form></div>
+    <div data-member-content></div>
+  </dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/main.js?v=6"></script>
+</body>
+</html>
